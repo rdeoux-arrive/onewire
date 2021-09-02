@@ -1,0 +1,14 @@
+[package]
+name = "onewire"
+version = "0.1.0"
+authors = ["Romain Déoux <ext-romain.deoux@flowbird.group>"]
+edition = "2018"
+description = "1-wire signal analyser"
+publish = false
+
+[dependencies]
+csv = "1.1.6"
+image = "0.23.14"
+indicatif = "0.16.2"
+pixels = "0.5.0"
+winit = "0.25.0"
