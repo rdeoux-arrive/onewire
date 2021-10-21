@@ -59,7 +59,7 @@ impl Draw for Line {
             };
             let point = Point::new().with_x(self.x1).with_color(self.color);
             for y in y1..=y2 {
-                point.clone().with_y(y).draw(buf, width)
+                point.clone().with_y(y).draw(buf, width);
             }
         } else if self.y1 == self.y2 {
             let (x1, x2) = if self.x1 < self.x2 {
@@ -69,7 +69,7 @@ impl Draw for Line {
             };
             let point = Point::new().with_y(self.y1).with_color(self.color);
             for x in x1..=x2 {
-                point.clone().with_x(x).draw(buf, width)
+                point.clone().with_x(x).draw(buf, width);
             }
         } else {
             const fn distance(a: u32, b: u32) -> u32 {

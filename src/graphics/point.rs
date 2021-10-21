@@ -38,7 +38,7 @@ impl Draw for Point {
             let width = usize::try_from(width).unwrap();
             if let Some(chunk) = frame.chunks_exact_mut(4).nth(x + y * width) {
                 if self.color.alpha == 0xff {
-                    chunk.copy_from_slice(&self.color.to_bytes())
+                    chunk.copy_from_slice(&self.color.to_bytes());
                 } else {
                     let q = u16::from(self.color.alpha);
                     let nq = 0x100 - q;
@@ -63,5 +63,5 @@ fn draw_alpha() {
     let mut frame = RED.to_bytes();
     let point = Point::new().with_color(GREEN.with_alpha(0x80));
     point.draw(&mut frame, 1);
-    assert_eq!(frame, YELLOW.to_bytes())
+    assert_eq!(frame, YELLOW.to_bytes());
 }

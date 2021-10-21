@@ -50,7 +50,7 @@ impl Draw for Rect {
         for y in 0..=self.height {
             let y = self.y + y;
             line = line.with_y1(y).with_y2(y);
-            line.draw(frame, width)
+            line.draw(frame, width);
         }
     }
 }

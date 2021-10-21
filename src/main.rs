@@ -57,16 +57,16 @@ fn main() {
                 } => {
                     if delta > 0.0 {
                         if modifiers.shift() {
-                            settings.dec_voltage()
+                            settings.dec_voltage();
                         } else {
-                            settings.dec_period()
+                            settings.dec_period();
                         }
                     } else if modifiers.shift() {
-                        settings.inc_voltage()
+                        settings.inc_voltage();
                     } else {
-                        settings.inc_period()
+                        settings.inc_period();
                     }
-                    window.request_redraw()
+                    window.request_redraw();
                 }
                 WindowEvent::CursorMoved { position, .. } => {
                     let x = position.x as u32;
@@ -78,7 +78,7 @@ fn main() {
                             settings.offset = offset + x0 - x1;
                         }
                     }
-                    window.request_redraw()
+                    window.request_redraw();
                 }
                 WindowEvent::MouseInput {
                     state,

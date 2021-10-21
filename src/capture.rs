@@ -37,7 +37,7 @@ impl Capture {
         for record in records {
             let record = record.map_err(Error::Csv)?;
             let sample = Sample::try_from(record).map_err(Error::InvalidRecord)?;
-            samples.push(sample)
+            samples.push(sample);
         }
 
         Ok(Self { samples })
@@ -102,9 +102,9 @@ impl<'a, T: Iterator<Item = &'a Sample>> Iterator for Edges<T> {
             match self.state {
                 EdgeState::Undetermined => {
                     if sample.voltage > V_TH {
-                        self.state = EdgeState::High
+                        self.state = EdgeState::High;
                     } else if sample.voltage < V_TL {
-                        self.state = EdgeState::Low
+                        self.state = EdgeState::Low;
                     }
                 }
                 EdgeState::High => {
@@ -266,7 +266,7 @@ where
                                 (slot.timestamp - byte.timestamp).try_into().unwrap(),
                             );
                         byte.value = byte.value >> 1 | 0x80;
-                        self.byte = Some(byte)
+                        self.byte = Some(byte);
                     }
                     (Direction::Unknown | Direction::MasterToSlave, SlotKind::WriteZero)
                     | (Direction::MasterToSlave, SlotKind::One) => {
@@ -283,7 +283,7 @@ where
                                 } else {
                                     0x00
                                 },
-                        })
+                        });
                     }
                     (Direction::Unknown | Direction::SlaveToMaster, SlotKind::ReadZero)
                     | (Direction::SlaveToMaster, SlotKind::One) => {
@@ -300,7 +300,7 @@ where
                                 } else {
                                     0x00
                                 },
-                        })
+                        });
                     }
                     (Direction::SlaveToMaster, SlotKind::WriteZero) => {
                         self.bits = 1;
@@ -309,7 +309,7 @@ where
                             timestamp: slot.timestamp,
                             duration: slot.duration,
                             value: 0x00,
-                        })
+                        });
                     }
                     (Direction::MasterToSlave, SlotKind::ReadZero) => {
                         self.bits = 1;
@@ -318,7 +318,7 @@ where
                             timestamp: slot.timestamp,
                             duration: slot.duration,
                             value: 0x00,
-                        })
+                        });
                     }
                 }
             } else {

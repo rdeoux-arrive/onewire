@@ -117,7 +117,7 @@ impl View<'_> {
                 text.with_x(x0 + 2)
                     .with_y(y1 + 2)
                     .with_color(gruvbox::FG4)
-                    .draw(frame, width)
+                    .draw(frame, width);
             }
         }
     }
@@ -159,7 +159,7 @@ impl View<'_> {
                         SlotKind::WriteZero => gruvbox::PURPLE,
                         SlotKind::Reset | SlotKind::One => gruvbox::FG4,
                     })
-                    .draw(frame, width)
+                    .draw(frame, width);
             }
         }
     }
@@ -177,7 +177,7 @@ impl View<'_> {
             }
             let line = line.clone().with_y1(Y - 2).with_y2(Y + 2);
             for x in (1..5).map(|x| x * DIVISION_WIDTH / 5).map(|o| x + o) {
-                line.clone().with_x(x).draw(frame, width)
+                line.clone().with_x(x).draw(frame, width);
             }
         }
 
@@ -185,11 +185,11 @@ impl View<'_> {
         for y in (0..8).map(|y| y * DIVISION_HEIGH) {
             const X: u32 = WIDTH / 2;
             if y > 0 {
-                line.clone().with_y(y).with_x2(WIDTH).draw(frame, width)
+                line.clone().with_y(y).with_x2(WIDTH).draw(frame, width);
             }
             let line = line.clone().with_x1(X - 2).with_x2(X + 2);
             for y in (1..4).map(|y| y * DIVISION_WIDTH / 4).map(|o| y + o) {
-                line.clone().with_y(y).draw(frame, width)
+                line.clone().with_y(y).draw(frame, width);
             }
         }
     }

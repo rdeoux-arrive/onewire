@@ -25,7 +25,7 @@ impl Settings {
         self.period = *Self::PERIODS
             .iter()
             .find(|per| *per > &self.period)
-            .unwrap_or(&self.period)
+            .unwrap_or(&self.period);
     }
 
     pub fn dec_period(&mut self) {
@@ -33,7 +33,7 @@ impl Settings {
             .iter()
             .rev()
             .find(|per| *per < &self.period)
-            .unwrap_or(&self.period)
+            .unwrap_or(&self.period);
     }
 
     const VOLTAGES: [Voltage; 3] = [
@@ -46,7 +46,7 @@ impl Settings {
         self.voltage = *Self::VOLTAGES
             .iter()
             .find(|per| *per > &self.voltage)
-            .unwrap_or(&self.voltage)
+            .unwrap_or(&self.voltage);
     }
 
     pub fn dec_voltage(&mut self) {
@@ -54,7 +54,7 @@ impl Settings {
             .iter()
             .rev()
             .find(|per| *per < &self.voltage)
-            .unwrap_or(&self.voltage)
+            .unwrap_or(&self.voltage);
     }
 }
 

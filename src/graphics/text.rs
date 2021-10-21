@@ -70,7 +70,7 @@ impl Draw for Text<'_> {
                                     .with_x(off_x + x)
                                     .with_y(self.y + y)
                                     .with_color(self.color)
-                                    .draw(frame, width)
+                                    .draw(frame, width);
                             }
                         }
                     }
