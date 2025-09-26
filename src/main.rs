@@ -8,115 +8,221 @@ mod settings;
 mod view;
 mod voltage;
 
-use crate::capture::{Capture, Direction, Edge, SlotKind};
-use crate::graphics::gruvbox::dark as gruvbox;
-use crate::graphics::{Color, Draw, Line, Point, Rect, Text};
-use crate::sample::Sample;
-use crate::settings::Settings;
-use crate::view::{View, HEIGHT, WIDTH};
-use crate::voltage::Voltage;
+use std::{fs::File, io, path::PathBuf, process::exit, sync::Arc};
+
+use clap::Parser;
 use indicatif::ProgressBar;
+use log::error;
 use pixels::{Pixels, SurfaceTexture};
-use std::env::args;
-use std::fs::File;
-use winit::dpi::PhysicalSize;
-use winit::event::{
-    ElementState, Event, ModifiersState, MouseButton, MouseScrollDelta, WindowEvent,
+use winit::{
+    application::ApplicationHandler,
+    dpi::PhysicalSize,
+    error::EventLoopError,
+    event::{ElementState, Modifiers, MouseScrollDelta, WindowEvent},
+    event_loop::{ActiveEventLoop, EventLoop},
+    keyboard::ModifiersKeyState,
+    window::{Window, WindowId},
 };
-use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::WindowBuilder;
 
-fn main() {
-    let filepath = args().nth(1).expect("Missing file path");
-    let file = File::open(&filepath).unwrap();
-    let bar = ProgressBar::new(file.metadata().unwrap().len());
-    let capture = Capture::from_reader(bar.wrap_read(file)).unwrap();
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_inner_size(PhysicalSize::new(WIDTH, HEIGHT))
-        .with_resizable(false)
-        .with_title(filepath)
-        .build(&event_loop)
-        .unwrap();
-    let surface_texture = SurfaceTexture::new(WIDTH, HEIGHT, &window);
-    let mut pixels = Pixels::new(WIDTH, HEIGHT, surface_texture).unwrap();
-    let mut settings = Settings::default();
-    let mut modifiers = ModifiersState::default();
-    let mut cursor_position: Option<u32> = None;
-    let mut drag_start = None;
+use crate::{
+    capture::{Capture, Direction, Edge, SlotKind},
+    graphics::{Color, Draw, Line, Point, Rect, Text, gruvbox::dark as gruvbox},
+    sample::Sample,
+    settings::Settings,
+    view::{HEIGHT, View, WIDTH},
+    voltage::Voltage,
+};
 
-    event_loop.run(move |event, _window, control_flow| {
-        *control_flow = ControlFlow::Wait;
+#[derive(Debug, thiserror::Error)]
+enum Error {
+    #[error("Winit event loop: {0}")]
+    EventLoop(#[from] EventLoopError),
+    #[error("I/O error: {0}")]
+    Io(#[from] io::Error),
+    #[error("Invalid capture: {0}")]
+    Capture(#[from] capture::Error),
+}
 
+impl Error {
+    #[must_use]
+    pub fn raw_os_error(&self) -> Option<i32> {
+        match self {
+            Self::EventLoop(EventLoopError::ExitFailure(code)) => Some(*code),
+            Self::Io(error) => error.raw_os_error(),
+            Self::Capture(capture::Error::Csv(error)) => {
+                if let csv::ErrorKind::Io(error) = error.kind() {
+                    error.raw_os_error()
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Parser)]
+struct Args {
+    /// Path to the CSV data
+    pub filepath: PathBuf,
+}
+
+struct App {
+    filepath: PathBuf,
+    capture: Capture,
+    window: Option<Arc<Window>>,
+    pixels: Option<Pixels<'static>>,
+    settings: Settings,
+    modifiers: Modifiers,
+    cursor_position: Option<u32>,
+    drag_start: Option<(u32, i32)>,
+}
+
+impl App {
+    pub fn new() -> Result<Self, Error> {
+        let Args { filepath } = Args::parse();
+
+        // Open the CSV file.
+        let file = File::open(&filepath)
+            .inspect_err(|err| error!("Unable to open {}: {err}", filepath.display()))?;
+
+        // Create a progress bar.
+        let metadata = file
+            .metadata()
+            .inspect_err(|err| error!("Unable to get file metadata: {err}"))?;
+        let bar = ProgressBar::new(metadata.len());
+
+        // Load the data.
+        let capture = Capture::from_reader(bar.wrap_read(file))
+            .inspect_err(|err| error!("Invalid content: {err}"))?;
+
+        Ok(Self {
+            filepath,
+            capture,
+            window: None,
+            pixels: None,
+            settings: Settings::default(),
+            modifiers: Modifiers::default(),
+            cursor_position: None,
+            drag_start: None,
+        })
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let window_attributes = Window::default_attributes()
+            .with_inner_size(PhysicalSize::new(WIDTH, HEIGHT))
+            .with_resizable(false)
+            .with_title(self.filepath.to_string_lossy());
+        let window = event_loop
+            .create_window(window_attributes)
+            .inspect_err(|err| error!("Unable to create the window: {err}"));
+
+        if let Ok(window) = window {
+            let window = Arc::new(window);
+            let surface_texture = SurfaceTexture::new(WIDTH, HEIGHT, window.clone());
+            self.pixels = Pixels::new(WIDTH, HEIGHT, surface_texture)
+                .inspect_err(|err| error!("Unable to create a pixels buffer: {err}"))
+                .ok();
+            self.window = Some(window);
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
         match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::ModifiersChanged(mods) => modifiers = mods,
-                WindowEvent::MouseWheel {
-                    delta: MouseScrollDelta::LineDelta(_, delta),
-                    ..
-                } => {
-                    if delta > 0.0 {
-                        if modifiers.shift() {
-                            settings.dec_voltage();
-                        } else {
-                            settings.dec_period();
-                        }
-                    } else if modifiers.shift() {
-                        settings.inc_voltage();
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers,
+            WindowEvent::CursorMoved { position, .. } => {
+                let x = position.x as u32;
+                if let Some(x) = self.cursor_position.replace(x)
+                    && let Some((drag_start, offset)) = self.drag_start
+                {
+                    let view = View::new(&self.settings, &self.capture);
+                    let x0 = view.x_to_timestamp(drag_start);
+                    let x1 = view.x_to_timestamp(x);
+                    self.settings.offset = offset + x0 - x1;
+                }
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let shift = self.modifiers.lshift_state() == ModifiersKeyState::Pressed
+                    || self.modifiers.rshift_state() == ModifiersKeyState::Pressed;
+                let delta_inc = match delta {
+                    MouseScrollDelta::LineDelta(hdelta, vdelta) => hdelta > 0.0 || vdelta > 0.0,
+                    MouseScrollDelta::PixelDelta(physical_position) => {
+                        physical_position.x >= 0.0 || physical_position.y >= 0.0
+                    }
+                };
+                if delta_inc {
+                    if shift {
+                        self.settings.dec_voltage();
                     } else {
-                        settings.inc_period();
+                        self.settings.dec_period();
                     }
+                } else if shift {
+                    self.settings.inc_voltage();
+                } else {
+                    self.settings.inc_period();
+                }
+                if let Some(window) = &self.window {
                     window.request_redraw();
                 }
-                WindowEvent::CursorMoved { position, .. } => {
-                    let x = position.x as u32;
-                    if let Some(x) = cursor_position.replace(x) {
-                        if let Some((drag_start, offset)) = drag_start {
-                            let view = View::new(&settings, &capture);
-                            let x0 = view.x_to_timestamp(drag_start) as i32;
-                            let x1 = view.x_to_timestamp(x) as i32;
-                            settings.offset = offset + x0 - x1;
-                        }
-                    }
-                    window.request_redraw();
-                }
-                WindowEvent::MouseInput {
-                    state,
-                    button: MouseButton::Left,
-                    ..
-                } => {
-                    if let Some(x) = cursor_position {
-                        drag_start = if state == ElementState::Pressed {
-                            Some((x, settings.offset))
-                        } else {
-                            None
-                        }
+            }
+            WindowEvent::MouseInput { state, .. } => {
+                if let Some(x) = self.cursor_position {
+                    self.drag_start = if state == ElementState::Pressed {
+                        Some((x, self.settings.offset))
+                    } else {
+                        None
                     }
                 }
-                WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                _ => {}
-            },
-            Event::RedrawRequested(_window_id) => {
-                let frame = pixels.get_frame();
+            }
+            WindowEvent::RedrawRequested => {
+                if let Some(pixels) = &mut self.pixels {
+                    let frame = pixels.frame_mut();
 
-                Rect::new()
-                    .with_width(WIDTH)
-                    .with_height(HEIGHT)
-                    .with_color(gruvbox::BG1)
-                    .draw(frame, WIDTH);
+                    Rect::new()
+                        .with_width(WIDTH)
+                        .with_height(HEIGHT)
+                        .with_color(gruvbox::BG1)
+                        .draw(frame, WIDTH);
 
-                let view = View::new(&settings, &capture);
-                view.draw(frame, WIDTH);
+                    let view = View::new(&self.settings, &self.capture);
+                    view.draw(frame, WIDTH);
 
-                // Cursor
-                if let Some(x) = cursor_position {
-                    let text = format!("X = {} us", view.x_to_timestamp(x));
-                    Text::new(&text).with_color(gruvbox::FG0).draw(frame, WIDTH);
+                    // Cursor
+                    if let Some(x) = self.cursor_position {
+                        let text = format!("X = {} us", view.x_to_timestamp(x));
+                        Text::new(&text).with_color(gruvbox::FG0).draw(frame, WIDTH);
+                    }
+
+                    if let Err(err) = pixels.render() {
+                        error!("Unable to render: {err}");
+                    }
                 }
-
-                pixels.render().ok();
             }
             _ => {}
         }
-    })
+    }
+}
+
+fn onewire_main() -> Result<(), Error> {
+    let mut app = App::new()?;
+    let event_loop = EventLoop::new()?;
+    event_loop.run_app(&mut app).map_err(Error::from)
+}
+
+fn main() {
+    if let Err(err) = onewire_main() {
+        eprintln!("{err}");
+        exit(err.raw_os_error().unwrap_or(1))
+    }
 }

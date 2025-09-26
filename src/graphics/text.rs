@@ -1,11 +1,11 @@
 use crate::{Color, Draw, Point};
 use core::convert::TryFrom;
-use image::{load_from_memory, GenericImageView};
+use image::load_from_memory;
 
 const TEXT_PNG: &[u8] = include_bytes!("text.png");
 const TEXT_CHARS: &str = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Text<'a> {
     pub x: u32,
     pub y: u32,

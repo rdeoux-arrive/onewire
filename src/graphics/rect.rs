@@ -1,6 +1,6 @@
 use crate::{Color, Draw, Line};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Rect {
     pub x: u32,
     pub y: u32,

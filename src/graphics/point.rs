@@ -1,7 +1,7 @@
 use crate::{Color, Draw};
 use core::convert::TryFrom;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Point {
     pub x: u32,
     pub y: u32,
@@ -9,6 +9,7 @@ pub struct Point {
 }
 
 impl Point {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             x: 0,
@@ -17,14 +18,17 @@ impl Point {
         }
     }
 
+    #[must_use]
     pub const fn with_x(self, x: u32) -> Self {
         Self { x, ..self }
     }
 
+    #[must_use]
     pub const fn with_y(self, y: u32) -> Self {
         Self { y, ..self }
     }
 
+    #[must_use]
     pub const fn with_color(self, color: Color) -> Self {
         Self { color, ..self }
     }

@@ -17,17 +17,19 @@ pub struct View<'a> {
 }
 
 impl<'a> View<'a> {
+    #[must_use]
     pub const fn new(settings: &'a Settings, capture: &'a Capture) -> Self {
         Self { settings, capture }
     }
 
+    #[must_use]
     pub fn sample_to_point(&self, sample: &Sample) -> Option<(u32, u32)> {
-        self.timestamp_to_x(sample.timestamp).map_or(None, |x| {
-            self.voltage_to_y(sample.voltage)
-                .map_or(None, |y| Some((x, y)))
-        })
+        let x = self.timestamp_to_x(sample.timestamp)?;
+        let y = self.voltage_to_y(sample.voltage)?;
+        Some((x, y))
     }
 
+    #[must_use]
     pub fn timestamp_to_x(&self, timestamp: i32) -> Option<u32> {
         let timestamp_min = self.settings.offset;
         let timestamp_max =
@@ -43,6 +45,7 @@ impl<'a> View<'a> {
         }
     }
 
+    #[must_use]
     pub fn voltage_to_y(&self, voltage: Voltage) -> Option<u32> {
         let voltage_max = self.settings.voltage.as_millivolts() * 4;
         let voltage_min = -voltage_max;
@@ -58,15 +61,9 @@ impl<'a> View<'a> {
         }
     }
 
+    #[must_use]
     pub const fn x_to_timestamp(&self, x: u32) -> i32 {
         (x * self.settings.period.as_micros() as u32 / DIVISION_WIDTH) as i32 + self.settings.offset
-    }
-
-    #[cfg(disable)]
-    pub const fn y_to_voltage(&self, y: u32) -> Voltage {
-        let voltage = (y * self.settings.voltage.as_millivolts() as u32 / DIVISION_HEIGH) as i16
-            - self.settings.voltage.as_millivolts() * 4;
-        Voltage::from_millivolts(-voltage)
     }
 }
 
@@ -208,18 +205,14 @@ impl View<'_> {
                 .with_y2(HEIGHT - 1)
                 .with_color(gruvbox::RED);
             line.draw(frame, width);
-            let text = format!("Xa = {} us", timestamp_a);
+            let text = format!("Xa = {timestamp_a} us");
             Text::new(&text)
                 .with_y(HEIGHT - 60)
                 .with_color(gruvbox::RED)
                 .draw(frame, width);
             if let Some((xb, timestamp_b)) = edges.next() {
                 line.with_x(xb).draw(frame, width);
-                let text = format!(
-                    "Xb = {} us (+{} us)",
-                    timestamp_b,
-                    timestamp_b - timestamp_a
-                );
+                let text = format!("Xb = {timestamp_b} us (+{} us)", timestamp_b - timestamp_a);
                 Text::new(&text)
                     .with_y(HEIGHT - 40)
                     .with_color(gruvbox::GREEN)

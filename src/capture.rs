@@ -1,16 +1,18 @@
-use crate::{Sample, Voltage};
-use core::convert::{TryFrom, TryInto};
-use core::iter::Peekable;
-use core::ops::Deref;
-use core::time::Duration;
-use csv::{self, ReaderBuilder, StringRecord};
+use core::{iter::Peekable, ops::Deref, time::Duration};
 use std::io::Read;
 
-#[derive(Debug)]
+use csv::{self, ReaderBuilder};
+
+use crate::{Sample, Voltage};
+
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
-    Csv(csv::Error),
+    #[error("{0}")]
+    Csv(#[from] csv::Error),
+    #[error("missing header")]
     MissingHeader,
-    InvalidRecord(crate::sample::Error),
+    #[error("{0}")]
+    InvalidRecord(#[from] crate::sample::Error),
 }
 
 #[derive(Default)]
@@ -24,20 +26,15 @@ impl Capture {
         let mut records = reader.into_records();
 
         for headers in &[&["x-axis", "1"] as &[&str], &["second", "Volt"]] {
-            let record = records
-                .next()
-                .ok_or(Error::MissingHeader)?
-                .map_err(Error::Csv)?;
-            if record != StringRecord::from(*headers) {
+            let record = records.next().ok_or(Error::MissingHeader)??;
+            if record != **headers {
                 return Err(Error::MissingHeader);
             }
         }
 
         let mut samples = Vec::new();
         for record in records {
-            let record = record.map_err(Error::Csv)?;
-            let sample = Sample::try_from(record).map_err(Error::InvalidRecord)?;
-            samples.push(sample);
+            samples.push(record?.try_into()?);
         }
 
         Ok(Self { samples })
@@ -50,13 +47,13 @@ impl Capture {
         }
     }
 
-    pub fn slots<'a>(&'a self) -> Slots<core::slice::Iter<'a, Sample>> {
+    pub fn slots(&self) -> Slots<'_, core::slice::Iter<'_, Sample>> {
         Slots {
             edges: self.edges().peekable(),
         }
     }
 
-    pub fn bytes<'a>(&'a self) -> Bytes<core::slice::Iter<'a, Sample>> {
+    pub fn bytes(&self) -> Bytes<'_, core::slice::Iter<'_, Sample>> {
         Bytes {
             slots: self.slots(),
             byte: None,
@@ -73,7 +70,7 @@ impl Deref for Capture {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Edge {
     Fall { timestamp: i32 },
     Raise { timestamp: i32 },
@@ -97,7 +94,7 @@ impl<'a, T: Iterator<Item = &'a Sample>> Iterator for Edges<T> {
         const V_TL: Voltage = Voltage::from_millivolts(500);
         const V_TH: Voltage = Voltage::from_volts(1);
 
-        while let Some(sample) = self.samples.next() {
+        for sample in self.samples.by_ref() {
             let timestamp = sample.timestamp;
             match self.state {
                 EdgeState::Undetermined => {
@@ -126,7 +123,7 @@ impl<'a, T: Iterator<Item = &'a Sample>> Iterator for Edges<T> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlotKind {
     Reset,
     One,
@@ -134,7 +131,7 @@ pub enum SlotKind {
     ReadZero,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Slot {
     pub kind: SlotKind,
     pub timestamp: i32,
@@ -156,63 +153,52 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(edge) = self.edges.next() {
-            if let Edge::Fall { timestamp: t0 } = edge {
-                if let Some(Edge::Raise { timestamp: t1 }) = self.edges.next() {
-                    if (480..=640).contains(&(t1 - t0)) {
-                        if let Some(Edge::Fall { timestamp: t2 }) = self.edges.next() {
-                            if (15..=60).contains(&(t2 - t1)) {
-                                if let Some(Edge::Raise { timestamp: t3 }) = self.edges.next() {
-                                    if (60..=240).contains(&(t3 - t2)) {
-                                        if let Some(Edge::Fall { timestamp: t4 }) =
-                                            self.edges.peek()
-                                        {
-                                            if t4 - t3 > 5 {
-                                                return Some(Slot {
-                                                    kind: SlotKind::Reset,
-                                                    timestamp: t0,
-                                                    duration: Duration::from_millis(
-                                                        (t1 + 305 - t0).try_into().unwrap(),
-                                                    ),
-                                                });
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else if (60..=120).contains(&(t1 - t0)) {
-                        if let Some(Edge::Fall { timestamp: t2 }) = self.edges.peek() {
-                            if t2 - t1 >= 5 {
-                                return Some(Slot {
-                                    kind: SlotKind::WriteZero,
-                                    timestamp: t0,
-                                    duration: Duration::from_millis(
-                                        (t1 - t0 + 5).try_into().unwrap(),
-                                    ),
-                                });
-                            }
-                        }
-                    } else if (15..=60).contains(&(t1 - t0)) {
-                        if let Some(Edge::Fall { timestamp: t2 }) = self.edges.peek() {
-                            if t2 - t1 >= 5 {
-                                return Some(Slot {
-                                    kind: SlotKind::ReadZero,
-                                    timestamp: t0,
-                                    duration: Duration::from_millis(65),
-                                });
-                            }
-                        }
-                    } else if (5..=15).contains(&(t1 - t0)) {
-                        if let Some(Edge::Fall { timestamp: t2 }) = self.edges.peek() {
-                            if t2 - t0 >= 65 {
-                                return Some(Slot {
-                                    kind: SlotKind::One,
-                                    timestamp: t0,
-                                    duration: Duration::from_millis(65),
-                                });
-                            }
-                        }
+            if let Edge::Fall { timestamp: t0 } = edge
+                && let Some(Edge::Raise { timestamp: t1 }) = self.edges.next()
+            {
+                if (480..=640).contains(&(t1 - t0)) {
+                    if let Some(Edge::Fall { timestamp: t2 }) = self.edges.next()
+                        && (15..=60).contains(&(t2 - t1))
+                        && let Some(Edge::Raise { timestamp: t3 }) = self.edges.next()
+                        && (60..=240).contains(&(t3 - t2))
+                        && let Some(Edge::Fall { timestamp: t4 }) = self.edges.peek()
+                        && t4 - t3 > 5
+                    {
+                        return Some(Slot {
+                            kind: SlotKind::Reset,
+                            timestamp: t0,
+                            duration: Duration::from_millis((t1 + 305 - t0).try_into().unwrap()),
+                        });
                     }
+                } else if (60..=120).contains(&(t1 - t0)) {
+                    if let Some(Edge::Fall { timestamp: t2 }) = self.edges.peek()
+                        && t2 - t1 >= 5
+                    {
+                        return Some(Slot {
+                            kind: SlotKind::WriteZero,
+                            timestamp: t0,
+                            duration: Duration::from_millis((t1 - t0 + 5).try_into().unwrap()),
+                        });
+                    }
+                } else if (15..=60).contains(&(t1 - t0)) {
+                    if let Some(Edge::Fall { timestamp: t2 }) = self.edges.peek()
+                        && t2 - t1 >= 5
+                    {
+                        return Some(Slot {
+                            kind: SlotKind::ReadZero,
+                            timestamp: t0,
+                            duration: Duration::from_millis(65),
+                        });
+                    }
+                } else if (5..=15).contains(&(t1 - t0))
+                    && let Some(Edge::Fall { timestamp: t2 }) = self.edges.peek()
+                    && t2 - t0 >= 65
+                {
+                    return Some(Slot {
+                        kind: SlotKind::One,
+                        timestamp: t0,
+                        duration: Duration::from_millis(65),
+                    });
                 }
             }
         }
@@ -221,14 +207,14 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Direction {
     Unknown,
     MasterToSlave,
     SlaveToMaster,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Byte {
     pub direction: Direction,
     pub timestamp: i32,
@@ -252,9 +238,9 @@ where
     type Item = Byte;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(slot) = self.slots.next() {
+        for slot in self.slots.by_ref() {
             self.bits += 1;
-            if let SlotKind::Reset = slot.kind {
+            if slot.kind == SlotKind::Reset {
                 self.byte = None;
                 self.bits = 0;
             } else if let Some(mut byte) = self.byte.take() {
